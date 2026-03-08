@@ -1,4 +1,4 @@
-from .detector import AntiCopyDetector, detect_copies
+from .detector import AntiCopyDetector
 from .models import CopyPair, MinerLogprobs
 
-__all__ = ["AntiCopyDetector", "detect_copies", "CopyPair", "MinerLogprobs"]
+__all__ = ["AntiCopyDetector", "CopyPair", "MinerLogprobs"]

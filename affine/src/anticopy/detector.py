@@ -15,10 +15,9 @@ Decision: is_copy when ALL available signals vote copy, with at least 1 signal.
 """
 
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from affine.core.setup import logger
-from affine.src.anticopy.loader import LogprobsLoader
 from affine.src.anticopy.metrics import js_divergence_topk, token_agreement_rate
 from affine.src.anticopy.models import CopyPair, MinerLogprobs
 
@@ -180,25 +179,3 @@ class AntiCopyDetector:
             f"out of {len(results)} pairs evaluated"
         )
         return results
-
-
-async def detect_copies(
-    miners: List[Dict],  # [{uid, hotkey, revision}]
-    hs_threshold: float = 0.99,
-    cosine_threshold: float = 0.93,
-    min_tasks: int = 3,
-) -> List[CopyPair]:
-    """Convenience function: load logprobs from DB and run detection.
-
-    Returns:
-        All CopyPair results sorted by confidence (check .is_copy for flagged pairs)
-    """
-    loader = LogprobsLoader()
-    miner_data = await loader.load_all_miners(miners)
-
-    detector = AntiCopyDetector(
-        hs_threshold=hs_threshold,
-        cosine_threshold=cosine_threshold,
-        min_tasks=min_tasks,
-    )
-    return detector.detect(miner_data)
