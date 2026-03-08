@@ -62,86 +62,71 @@ class AntiCopyService:
         logger.info(f"[AntiCopy] Fetched {len(miners)} active miners from chain")
         return miners
 
-    def _build_copy_groups(
+    def _build_copy_records(
         self, copy_pairs, miner_info: Dict[int, dict]
     ) -> List[dict]:
-        """Build per-model records from copy pairs using union-find.
+        """Build per-model copy records.
 
-        For each group of copies, the miner with the earliest block is
-        considered the original; the rest are copiers.
+        For each miner, find the earliest-block miner among all its
+        direct similar pairs. If that miner committed earlier, the
+        current miner is a copier pointing to it as the original.
 
         Returns:
-            List of dicts ready for DAO.save_round()
+            List of dicts ready for DAO.save_round() (only copiers)
         """
-        # Union-Find to group connected copy pairs
-        parent = {}
-
-        def find(x):
-            while parent.get(x, x) != x:
-                parent[x] = parent.get(parent[x], parent[x])
-                x = parent[x]
-            return x
-
-        def union(a, b):
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[ra] = rb
-
+        # Build adjacency: uid -> [(other_uid, CopyPair)]
+        neighbors: Dict[int, list] = defaultdict(list)
         for pair in copy_pairs:
-            union(pair.uid_a, pair.uid_b)
-
-        # Group UIDs by root
-        groups: Dict[int, set] = defaultdict(set)
-        all_copy_uids = set()
-        for pair in copy_pairs:
-            all_copy_uids.update([pair.uid_a, pair.uid_b])
-        for uid in all_copy_uids:
-            groups[find(uid)].add(uid)
-
-        # Build pair lookup: (uid_a, uid_b) -> CopyPair
-        pair_map = {}
-        for pair in copy_pairs:
-            pair_map[(pair.uid_a, pair.uid_b)] = pair
-            pair_map[(pair.uid_b, pair.uid_a)] = pair
+            neighbors[pair.uid_a].append((pair.uid_b, pair))
+            neighbors[pair.uid_b].append((pair.uid_a, pair))
 
         results = []
-        for group_uids in groups.values():
-            # Original = earliest block in group
-            sorted_uids = sorted(
-                group_uids, key=lambda u: miner_info[u]["block"]
-            )
-            original_uid = sorted_uids[0]
+        for uid, peers in neighbors.items():
+            info = miner_info[uid]
+            my_block = info["block"]
 
-            # Only store copiers, skip the original
-            for uid in sorted_uids[1:]:
-                info = miner_info[uid]
-                pair = pair_map.get((uid, original_uid)) or pair_map.get((original_uid, uid))
-                orig_info = miner_info[original_uid]
+            # Find the peer with the earliest block
+            earliest_uid = None
+            earliest_block = my_block
+            earliest_pair = None
+            for peer_uid, pair in peers:
+                peer_block = miner_info[peer_uid]["block"]
+                if peer_block < earliest_block or (
+                    peer_block == earliest_block and peer_uid < uid
+                ):
+                    earliest_block = peer_block
+                    earliest_uid = peer_uid
+                    earliest_pair = pair
 
-                copy_entry = {
-                    "uid": original_uid,
-                    "hotkey": orig_info["hotkey"],
-                    "model": orig_info["model"],
-                }
-                if pair:
-                    for key, val in [
-                        ("logprobs_cosine", pair.cosine_similarity),
-                        ("hs_cosine", pair.hs_cosine),
-                        ("js_div", pair.js_divergence),
-                    ]:
-                        if val is not None and not (isinstance(val, float) and math.isnan(val)):
-                            copy_entry[key] = val
-                    copy_entry["n_tasks"] = pair.n_tasks
+            # If no peer is earlier, this miner is an original
+            if earliest_uid is None:
+                continue
 
-                results.append({
-                    "uid": uid,
-                    "hotkey": info["hotkey"],
-                    "model": info["model"],
-                    "revision": info["revision"],
-                    "block": info["block"],
-                    "is_copy": True,
-                    "copy_of": [copy_entry],
-                })
+            orig_info = miner_info[earliest_uid]
+            copy_entry = {
+                "uid": earliest_uid,
+                "hotkey": orig_info["hotkey"],
+                "model": orig_info["model"],
+            }
+            if earliest_pair:
+                for key, val in [
+                    ("logprobs_cosine", earliest_pair.cosine_similarity),
+                    ("hs_cosine", earliest_pair.hs_cosine),
+                    ("js_div", earliest_pair.js_divergence),
+                ]:
+                    if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                        copy_entry[key] = val
+                copy_entry["n_tasks"] = earliest_pair.n_tasks
+
+            results.append({
+                "uid": uid,
+                "hotkey": info["hotkey"],
+                "model": info["model"],
+                "revision": info["revision"],
+                "block": info["block"],
+                "is_copy": True,
+                "copy_of": [copy_entry],
+            })
 
         return results
 
@@ -176,7 +161,7 @@ class AntiCopyService:
 
         # Save to DB
         if copy_pairs:
-            records = self._build_copy_groups(copy_pairs, miner_info)
+            records = self._build_copy_records(copy_pairs, miner_info)
             dao = AntiCopyDAO()
             round_ts = int(time.time())
             await dao.save_round(records, round_timestamp=round_ts)

@@ -22,6 +22,7 @@ from affine.utils.model_size_checker import check_model_size
 from affine.core.setup import NETUID
 from affine.database.dao.miners import MinersDAO
 from affine.database.dao.system_config import SystemConfigDAO
+from affine.database.dao.anti_copy import AntiCopyDAO
 from affine.core.setup import logger
 
 
@@ -68,6 +69,7 @@ class MinersMonitor:
         """
         self.dao = MinersDAO()
         self.config_dao = SystemConfigDAO()
+        self.anticopy_dao = AntiCopyDAO()
         self.refresh_interval_seconds = refresh_interval_seconds
         self.last_update: int = 0
         
@@ -485,6 +487,35 @@ class MinersMonitor:
         except Exception as e:
             logger.warning(f"[MinersMonitor] Template check failed for uid={uid}: {e}")
             # Continue validation even if template check fails
+
+        # Step 12: Check anti-copy detection results (except uid 0)
+        if uid != 0:
+            try:
+                ac_result = await self.anticopy_dao.get_latest(model, revision)
+                if ac_result and ac_result.get("is_copy"):
+                    copy_of = ac_result.get("copy_of", [])
+                    orig = copy_of[0] if copy_of else {}
+                    orig_model = orig.get("model", "unknown")
+                    lp_cos = orig.get("logprobs_cosine", "")
+                    hs_cos = orig.get("hs_cosine", "")
+                    sim_parts = []
+                    if lp_cos:
+                        sim_parts.append(f"lp={lp_cos:.4f}" if isinstance(lp_cos, (int, float)) else f"lp={lp_cos}")
+                    if hs_cos:
+                        sim_parts.append(f"hs={hs_cos:.4f}" if isinstance(hs_cos, (int, float)) else f"hs={hs_cos}")
+                    sim_str = ",".join(sim_parts)
+                    reason = f"anticopy:high_similarity_with={orig_model}"
+                    if sim_str:
+                        reason += f"({sim_str})"
+                    info.is_valid = False
+                    info.invalid_reason = reason
+                    logger.info(
+                        f"[MinersMonitor] Anti-copy flagged uid={uid}: "
+                        f"model={model} high similarity with {orig_model} [{sim_str}]"
+                    )
+                    return info
+            except Exception as e:
+                logger.debug(f"[MinersMonitor] Anti-copy check failed for uid={uid}: {e}")
 
         # All checks passed
         info.is_valid = True
