@@ -292,6 +292,37 @@ MINER_STATS_SCHEMA = {
 }
 
 
+# Anti-Copy Results Table
+#
+# Schema design:
+# - PK: MODEL#{hotkey}#{revision} - partition by model for even distribution
+# - SK: ROUND#{timestamp} - each detection round creates one record per model
+#
+# Each record stores whether this model is a copy, and if so, who it copied from
+# (determined by earliest commit block number).
+#
+# Query patterns:
+# 1. Check if a model is a copy: Query PK={model}#{revision} Limit=1 reverse=True
+# 2. Get full history for a model: Query PK={model}#{revision}
+ANTI_COPY_RESULTS_SCHEMA = {
+    "TableName": get_table_name("anti_copy_results"),
+    "KeySchema": [
+        {"AttributeName": "pk", "KeyType": "HASH"},   # {model}#{revision}
+        {"AttributeName": "sk", "KeyType": "RANGE"},   # ROUND#{timestamp}
+    ],
+    "AttributeDefinitions": [
+        {"AttributeName": "pk", "AttributeType": "S"},
+        {"AttributeName": "sk", "AttributeType": "S"},
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+}
+
+# TTL settings for anti_copy_results (30 days retention)
+ANTI_COPY_RESULTS_TTL = {
+    "AttributeName": "ttl",
+}
+
+
 # All table schemas
 ALL_SCHEMAS = [
     SAMPLE_RESULTS_SCHEMA,
@@ -302,4 +333,5 @@ ALL_SCHEMAS = [
     MINERS_SCHEMA,
     SCORE_SNAPSHOTS_SCHEMA,
     MINER_STATS_SCHEMA,
+    ANTI_COPY_RESULTS_SCHEMA,
 ]

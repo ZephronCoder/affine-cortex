@@ -93,10 +93,11 @@ async def init_tables():
         MINERS_SCHEMA,
         SCORE_SNAPSHOTS_SCHEMA, SCORE_SNAPSHOTS_TTL,
         MINER_STATS_SCHEMA,
+        ANTI_COPY_RESULTS_SCHEMA, ANTI_COPY_RESULTS_TTL,
     )
-    
+
     print("Initializing DynamoDB tables...")
-    
+
     # Create tables with TTL configuration
     await asyncio.gather(
         create_table(SAMPLE_RESULTS_SCHEMA, ttl_attribute=SAMPLE_RESULTS_TTL["AttributeName"]),
@@ -107,6 +108,7 @@ async def init_tables():
         create_table(MINERS_SCHEMA),
         create_table(SCORE_SNAPSHOTS_SCHEMA, ttl_attribute=SCORE_SNAPSHOTS_TTL["AttributeName"]),
         create_table(MINER_STATS_SCHEMA),
+        create_table(ANTI_COPY_RESULTS_SCHEMA, ttl_attribute=ANTI_COPY_RESULTS_TTL["AttributeName"]),
     )
     
     print("All tables initialized successfully")

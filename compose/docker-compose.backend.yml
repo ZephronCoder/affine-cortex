@@ -74,6 +74,19 @@ services:
       - /var/log/affine/monitor:/var/log/affine/monitor
     command: ["-v", "servers", "monitor"]
 
+  # Anti-Copy Detection - Model copy detection service
+  anticopy:
+    image: affinefoundation/affine:latest
+    container_name: affine-anticopy
+    restart: unless-stopped
+    mem_reservation: "2g"
+    mem_limit: "4g"
+    env_file:
+      - .env
+    volumes:
+      - /var/log/affine/anticopy:/var/log/affine/anticopy
+    command: ["-v", "servers", "anticopy"]
+
   # Scorer - Weight calculation service
   scorer:
     image: affinefoundation/affine:latest
@@ -98,7 +111,7 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 30 affine-api affine-scheduler affine-executor affine-monitor affine-scorer
+    command: --interval 30 affine-api affine-scheduler affine-executor affine-monitor affine-anticopy affine-scorer
 
 networks:
   default:

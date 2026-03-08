@@ -8,6 +8,7 @@ Server Services (af servers):
 - af servers api       : Start API server
 - af servers executor  : Start executor service
 - af servers monitor   : Start monitor service (miners monitoring)
+- af servers anticopy  : Start anti-copy detection service
 - af servers scorer    : Start scorer service
 - af servers scheduler : Start scheduler service
 - af servers validator : Start validator service
@@ -107,6 +108,16 @@ def monitor(ctx):
     
     sys.argv = ["monitor"] + ctx.args
     monitor_main.main(standalone_mode=False)
+
+
+@servers.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@click.pass_context
+def anticopy(ctx):
+    """Start anti-copy detection service."""
+    from affine.src.anticopy.main import main as anticopy_main
+
+    sys.argv = ["anticopy"] + ctx.args
+    anticopy_main.main(standalone_mode=False)
 
 
 @servers.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
