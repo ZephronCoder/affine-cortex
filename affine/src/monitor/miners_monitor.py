@@ -640,7 +640,7 @@ class MinersMonitor:
 
                     # Disqualify if hotkey has more than one commit.
                     # Only enforced when the latest commit is at or after this block.
-                    _MULTI_COMMIT_ENFORCE_BLOCK = 7679000
+                    _MULTI_COMMIT_ENFORCE_BLOCK = 7708800
                     latest_commit_block = int(block)
                     if uid != 0 and len(commits[hotkey]) > 1 and latest_commit_block >= _MULTI_COMMIT_ENFORCE_BLOCK:
                         miners.append(MinerInfo(
