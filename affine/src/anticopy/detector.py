@@ -35,7 +35,7 @@ class AntiCopyDetector:
         self,
         hs_threshold: float = 0.99,
         cosine_threshold: float = 0.99,
-        min_tasks: int = 10,
+        min_tasks: int = 20,
     ):
         self.hs_threshold = hs_threshold
         self.cosine_threshold = cosine_threshold
