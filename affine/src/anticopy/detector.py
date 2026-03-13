@@ -18,6 +18,7 @@ import numpy as np
 from typing import Dict, List
 
 from affine.core.setup import logger
+from affine.src.anticopy.loader import TOP_K
 from affine.src.anticopy.metrics import js_divergence_topk, token_agreement_rate
 from affine.src.anticopy.models import CopyPair, MinerLogprobs
 
@@ -49,6 +50,39 @@ class AntiCopyDetector:
         if na == 0 or nb == 0:
             return 0.0
         return float(np.dot(a, b) / (na * nb))
+
+    @staticmethod
+    def _find_fork_pos(tokens_a: List[str], tokens_b: List[str]) -> int:
+        """Find the first position where tokens diverge.
+
+        Returns the number of matching prefix tokens (0 if first token differs,
+        len if all match).
+        """
+        n = min(len(tokens_a), len(tokens_b))
+        for i in range(n):
+            if tokens_a[i] != tokens_b[i]:
+                return i
+        return n
+
+    def _cosine_until_fork(
+        self,
+        lp_a: np.ndarray,
+        lp_b: np.ndarray,
+        tokens_a: List[str],
+        tokens_b: List[str],
+        min_prefix: int = 2,
+    ) -> float:
+        """Compute logprob cosine only up to the token fork point.
+
+        Each token position contributes TOP_K values in the logprob vector.
+        If the matching prefix is shorter than min_prefix, return NaN
+        (not enough shared context to compare).
+        """
+        fork = self._find_fork_pos(tokens_a, tokens_b)
+        if fork < min_prefix:
+            return float("nan")
+        end = fork * TOP_K
+        return self._cosine_pair(lp_a[:end], lp_b[:end])
 
     def detect(self, miners: Dict[int, MinerLogprobs]) -> List[CopyPair]:
         """Run detection over all miner pairs.
@@ -84,7 +118,11 @@ class AntiCopyDetector:
 
                 if has_logprobs:
                     cosines = np.array([
-                        self._cosine_pair(ma.task_logprobs[t], mb.task_logprobs[t])
+                        self._cosine_until_fork(
+                            ma.task_logprobs[t], mb.task_logprobs[t],
+                            ma.task_tokens.get(t, []),
+                            mb.task_tokens.get(t, []),
+                        )
                         for t in lp_common
                     ])
                     med_cosine = float(np.nanquantile(cosines, 0.25))
