@@ -114,40 +114,78 @@ async def fetch_scorer_config(client) -> dict:
         return {}
 
 
+def _get_filter_reason_from_api(score: dict, environments: list, env_configs: dict, scorer_config: dict) -> str:
+    """Get concise filter reason from API score data (max 12 chars)."""
+    filter_info = score.get("filter_info") or {}
+    filter_reasons = filter_info.get("filter_reasons", {})
+    filtered_subsets = filter_info.get("filtered_subsets", [])
+
+    # Pareto dominated
+    if filtered_subsets:
+        for reason in filter_reasons.values():
+            if isinstance(reason, str) and reason.startswith("dom>"):
+                return reason  # e.g. "dom>123"
+        return "pareto"
+
+    # Incomplete env
+    default_min_completeness = scorer_config.get("min_completeness", 0.9)
+    scores_by_env = score.get("scores_by_env", {})
+    for env in environments:
+        if env in scores_by_env:
+            env_data = scores_by_env[env]
+            completeness = env_data.get("completeness", 1.0)
+            env_config = env_configs.get(env, {})
+            env_min = env_config.get("min_completeness", default_min_completeness)
+            if completeness < env_min:
+                env_short = env.split(':')[-1][:10]
+                return f"!{env_short}"
+        else:
+            env_short = env.split(':')[-1][:10]
+            return f"!{env_short}"
+
+    # No valid data
+    total_samples = score.get("total_samples", 0)
+    if total_samples == 0:
+        return "no_data"
+    return ""
+
+
 async def print_rank_table():
     """Fetch and print miner ranking table in scorer format.
-    
+
     This function replicates the output format of scorer's print_detailed_table,
     but fetches data from the API instead of calculating from raw samples.
     """
-    # Use CLI context manager to create a single session for all API calls
     async with cli_api_client() as client:
-        # Fetch scores, environments, and config
         scores_data = await fetch_latest_scores(client)
         environments, env_configs = await fetch_environments(client)
         scorer_config = await fetch_scorer_config(client)
-    
+
         if not scores_data or not scores_data.get('block_number'):
             print("No scores found")
             return
-        
+
         block_number = scores_data.get("block_number")
         calculated_at = scores_data.get("calculated_at")
         scores_list = scores_data.get("scores", [])
-        
+
         if not scores_list:
             print(f"No miners scored at block {block_number}")
             return
-    
-        # Print header
-        print("=" * 180, flush=True)
-        print(f"MINER RANKING TABLE - Block {block_number}", flush=True)
-        print("=" * 180, flush=True)
-        
-        # Build header - Hotkey first, then UID, then Model, then First Block, then environments
-        header_parts = ["Hotkey  ", " UID", "Model                    ", " FirstBlk "]
-        
-        # Format environment names - use display_name if available
+
+        # Sort: weight>0 first (by rating desc), then filtered (by rating desc)
+        scores_list = sorted(
+            scores_list,
+            key=lambda s: (
+                (s.get("overall_score") or 0) > 0,
+                s.get("elo_rating") or 0,
+            ),
+            reverse=True
+        )
+
+        # Build header
+        header_parts = ["Hotkey  ", " UID", "Model                    "]
+
         for env in environments:
             env_cfg = env_configs.get(env, {})
             if isinstance(env_cfg, dict) and env_cfg.get('display_name'):
@@ -156,100 +194,82 @@ async def print_rank_table():
                 env_display = env.split(':', 1)[1]
             else:
                 env_display = env
-            # Adjust width to accommodate "score[threshold]/count(!)" format
-            header_parts.append(f"{env_display:>20}")
-        
-        # Find all layers that have non-zero weights
-        all_layers = set()
-        for score in scores_list:
-            scores_by_layer = score.get("scores_by_layer", {})
-            for layer_key, weight in scores_by_layer.items():
-                if weight > 0:
-                    # Extract layer number from "L3" format
-                    layer_num = int(layer_key[1:])
-                    all_layers.add(layer_num)
-        
-        active_layers = sorted(all_layers)
-        
-        for layer in active_layers:
-            header_parts.append(f"{'L'+str(layer):>8}")
-        
-        header_parts.extend(["   Total ", "  Weight ", "V"])
-        
-        print(" | ".join(header_parts), flush=True)
-        print("-" * 180, flush=True)
-        
-        # Print each miner row
+            header_parts.append(f"{env_display:>14}")
+
+        header_parts.extend(["Rating", "   Δ", " Rnd", "  Weight  ", "Status      "])
+
+        header_line = " | ".join(header_parts)
+        table_width = len(header_line)
+
+        print("=" * table_width, flush=True)
+        print(f"MINER RANKING TABLE - Block {block_number}", flush=True)
+        print("=" * table_width, flush=True)
+        print(header_line, flush=True)
+        print("-" * table_width, flush=True)
+
         for score in scores_list:
             uid = score.get("uid")
             hotkey = score.get("miner_hotkey")
-            model_revision = score.get("model_revision")
             model = score.get("model")
-            first_block = score.get("first_block")
-            overall_score = score.get("overall_score")
+            overall_score = score.get("overall_score") or 0
             scores_by_env = score.get("scores_by_env", {})
-            scores_by_layer = score.get("scores_by_layer", {})
-            total_samples = score.get("total_samples")
-            
+            elo_rating = int(score.get("elo_rating") or 0)
+            elo_rounds_played = int(score.get("elo_rounds_played") or 0)
+            elo_rating_change = int(score.get("elo_rating_change") or 0)
+            is_active = overall_score > 0
+
             model_display = model[:25]
-            
+            filter_reason = _get_filter_reason_from_api(score, environments, env_configs, scorer_config)
+
             row_parts = [
                 f"{hotkey[:8]:8s}",
                 f"{uid:4d}",
                 f"{model_display:25s}",
-                f"{first_block:10d}"
             ]
-            
-            # Environment scores - show "score[threshold]/count(!)" format (score × 100, 2 decimals)
-            # Get default min_completeness from config (default: 0.9 if not available)
+
+            # Environment scores
             default_min_completeness = scorer_config.get("min_completeness", 0.9)
-            
             for env in environments:
                 if env in scores_by_env:
                     env_data = scores_by_env[env]
                     env_score = env_data.get("score", 0.0)
                     sample_count = env_data.get("sample_count", 0)
                     completeness = env_data.get("completeness", 1.0)
-                    threshold = env_data.get("threshold", 0.0)
-                    
                     score_percent = env_score * 100
-                    threshold_percent = threshold * 100
-                    
-                    # Get environment-specific min_completeness or use default
+
                     env_config = env_configs.get(env, {})
                     env_min_completeness = env_config.get("min_completeness", default_min_completeness)
-                    
-                    # Check if sample count is insufficient using environment-specific parameter
                     is_insufficient = completeness < env_min_completeness
-                    
+
                     if is_insufficient:
-                        score_str = f"{score_percent:.2f}[{threshold_percent:.2f}]/{sample_count}!"
+                        score_str = f"{score_percent:.2f}/{sample_count}!"
                     else:
-                        score_str = f"{score_percent:.2f}[{threshold_percent:.2f}]/{sample_count}"
-                    row_parts.append(f"{score_str:>20}")
+                        score_str = f"{score_percent:.2f}/{sample_count}"
+                    row_parts.append(f"{score_str:>14}")
                 else:
-                    row_parts.append(f"{'  -  ':>20}")
-            
-            # Layer weights - only for active layers
-            for layer in active_layers:
-                layer_key = f"L{layer}"
-                weight = scores_by_layer.get(layer_key, 0.0)
-                row_parts.append(f"{weight:>8.4f}")
-            
-            # Total (cumulative) and Weight (normalized)
-            # Use cumulative_weight if available, otherwise fall back to average_score
-            cumulative_weight = score.get("cumulative_weight")
-            row_parts.append(f"{cumulative_weight:>9.4f}")  # Total: cumulative weight before normalization
-            row_parts.append(f"{overall_score:>9.6f}")  # Weight: normalized weight
-            row_parts.append("✓" if overall_score > 0 else "✗")
-            
+                    row_parts.append(f"{'  -  ':>14}")
+
+            if is_active:
+                delta_str = f"+{elo_rating_change}" if elo_rating_change >= 0 else str(elo_rating_change)
+                row_parts.append(f"{elo_rating:6d}")
+                row_parts.append(f"{delta_str:>6s}")
+                row_parts.append(f"{elo_rounds_played:4d}")
+                row_parts.append(f"{overall_score:>10.6f}")
+                row_parts.append(f"{'✓':12s}")
+            else:
+                row_parts.append(f"{'—':>6}")
+                row_parts.append(f"{'—':>6}")
+                row_parts.append(f"{'—':>4}")
+                row_parts.append(f"{'0':>10}")
+                row_parts.append(f"{filter_reason or '✗':12s}")
+
             print(" | ".join(row_parts), flush=True)
-        
-        print("=" * 180, flush=True)
+
+        print("=" * table_width, flush=True)
         print(f"Total miners: {len(scores_list)}", flush=True)
-        non_zero = len([s for s in scores_list if s.get("overall_score", 0.0) > 0])
+        non_zero = len([s for s in scores_list if (s.get("overall_score") or 0) > 0])
         print(f"Active miners (weight > 0): {non_zero}", flush=True)
-        print("=" * 180, flush=True)
+        print("=" * table_width, flush=True)
 
 
 async def get_rank_command():
