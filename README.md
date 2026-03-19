@@ -90,5 +90,5 @@ See the example files for complete usage patterns.
 
 - **Discord**: [Join our community](https://discord.com/invite/3T9X4Yn23e)
 - **Dashboard**: [https://www.affine.io/](https://www.affine.io/)
-- **GitHub**: [https://github.com/AffineFoundation/affine](https://github.com/AffineFoundation/affine)
+- **GitHub**: [https://github.com/AffineFoundation/affine-cortex](https://github.com/AffineFoundation/affine-cortex)
 - **FAQ**: [docs/FAQ.md](docs/FAQ.md)
