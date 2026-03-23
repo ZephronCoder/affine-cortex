@@ -42,9 +42,9 @@
       }
     },
     "SWE-SYNTH": {
-      "display_name": "SWE",
-      "enabled_for_sampling": true,
-      "enabled_for_scoring": true,
+      "display_name": "SWE-SYNTH",
+      "enabled_for_sampling": false,
+      "enabled_for_scoring": false,
       "min_completeness": 0.8,
       "sampling_config": {
         "dataset_range": [[300, 400]],
@@ -61,7 +61,7 @@
       }
     },
     "SWE-INFINITE": {
-      "display_name": "SWE-INF",
+      "display_name": "SWE",
       "enabled_for_sampling": true,
       "enabled_for_scoring": true,
       "min_completeness": 0.8,
