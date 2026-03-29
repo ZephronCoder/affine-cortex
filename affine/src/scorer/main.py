@@ -271,10 +271,15 @@ async def run_openskill_scoring(
                 env_task_scores[env_name][int(tid)][miner_key] = float(score)
                 miner_task_counts[miner_key][env_name] += 1
 
+    # Load sampling_list directly from DB (API filters it out for response size)
+    from affine.database.dao.system_config import SystemConfigDAO
+    config_dao = SystemConfigDAO()
+    db_environments = await config_dao.get_param_value('environments', {})
+
     # Determine which tasks to process
     env_window_sizes = {}
     for env_name in environments:
-        sampling_cfg = env_configs.get(env_name, {}).get('sampling_config', {})
+        sampling_cfg = db_environments.get(env_name, {}).get('sampling_config', {})
         sampling_list = sampling_cfg.get('sampling_list', [])
         env_window_sizes[env_name] = len(sampling_list)
 
