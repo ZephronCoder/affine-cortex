@@ -74,7 +74,7 @@
         },
         "sampling_count": 130,
         "rotation_enabled": true,
-        "rotation_count": 3,
+        "rotation_count": 4,
         "rotation_interval": 3600,
         "scheduling_weight": 1.0
       }
